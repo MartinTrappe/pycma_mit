@@ -4,14 +4,14 @@ Multi-run CMA-ES optimization driver (using the Python `cma` package from N. Han
 
 ## Overview
 
-`pycma_mit` launches multiple parallel CMA-ES runs (via `concurrent.futures`), collects the best-of-generation fitness values, and saves logs and plots in a timestamped `data/` folder.
+`pycma_mit` launches multiple parallel CMA-ES runs (via `concurrent.futures`), tracks the best fitness value of each run, and saves timestamped logs and plots in the automatically created `data/` folder.
 
 **Key outputs:**
 
 - data for best fitness trajectory
 - log of all output
 - PDF plot of optimization progress of all runs
-- Backup copy of the script
+- Automatic backup copy of the script at execution time
 
 ## Author
 
@@ -24,8 +24,8 @@ July 4, 2025
 ## Features
 
 - **Parallel execution:** run multiple CMA-ES instances concurrently
-- **Customizable:** dimension, population size, sigma, generation count, etc.
-- **Elitism & reinflation:** built-in mechanisms to avoid premature convergence
+- **Customizable:** objective functions (optionally to be called from other scipts), population size, generation count, etc.
+- **Elitism & Co:** built-in mechanisms to avoid premature (or accelerate) convergence
 - **Logging & plotting:** auto-saved `.dat` files and Matplotlib figures
 - **Easy integration:** template hooks for external programs
 
@@ -33,7 +33,6 @@ July 4, 2025
 
 - **Python** 3.7 or later
 - **bash** shell (for `run_pycma_mit.sh`)
-- **Git** (for version control)
 
 ## Installation
 
@@ -51,7 +50,7 @@ July 4, 2025
 ├── run_pycma_mit.sh      # Setup & run wrapper
 ├── data/                 # Generated logs & plots (auto-created)
 ├── README.md             # This file
-├── LICENSE               # MIT License
+├── LICENSE               # License
 └── .gitignore            # Excludes venv/, data/, __pycache__/, etc.
 ```
 
@@ -59,11 +58,12 @@ July 4, 2025
 
 **Edit** the `# === USER INPUT ===` block in `pycma_mit.py` to set your parameters:
    - Objective function
+   - Search space dimension
    - Number of runs
    - Initial step-size (`sigma0`)
    - Population size (`popsize`)
    - Max generations (`maxGeneration`)
-   - Elitism intervals, reinflation periods, etc.
+   - Elitism, reinflation periods, etc.
 
 **Run** the setup and script:
    ```bash
