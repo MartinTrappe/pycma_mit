@@ -9,7 +9,7 @@ and saves results/plots in a timestamped `data/` folder.
 Author: Martin-Isbjörn Trappe
 Email: martin.trappe@quantumlah.org
 Date: 2025-07-04
-License: MIT License
+License: License
 
 Usage:
     ./run_pycma_mit.sh
@@ -18,7 +18,7 @@ Usage:
 Dependencies:
     cma, numpy, matplotlib, pandas
 
-See ===== BEGIN USER INPUT ===== END USER INPUT ===== below to adapt script for your objective
+See ===== BEGIN USER INPUT ===== below to adapt script for your objective
 """
 
 
@@ -36,58 +36,99 @@ from datetime import datetime
 import shutil
 
 
+# ============================
 # ===== BEGIN USER INPUT =====
+# ============================
+# choose which objective function (definitions below) to run:
+#   'quadratic'  →  f(x)=x²
+#   'QuantumCircuitIA'    →  external noisy_mps_vector_sim-Martin
+func_id      = 'quadratic'
 threads = os.cpu_count()                       # number of threads for parallel evaluations
 runs = max(1, threads)                         # number of independent CMA-ES runs
 DIM = 32                                       # problem dimension
-sigma0 = 0.3                                   # initial global step size (sigma), default 0.3, increase to 1.0 for more exploration
+sigma0 = 1.0                                   # initial global step size (sigma), default 0.3, increase to 1.0 for more exploration
 popsize = 7                                    # λ: offspring population size per generation
 mu = popsize // 2                              # μ: number of parents for recombination
-maxGeneration = 10                           # maximum number of generations
-ReinflateSigma = False                         # if True, reinflate sigma when stagnating
+maxGeneration = 1000                           # maximum number of generations
 diagDecoding = 1.0                             # diagonal→full covariance transition speed (0=slow,1=instant)
 elitismQ = True                               # if True, always keep best parent each generation
 ResetSchedule = 0#max(1, maxGeneration // runs)  # generations between killing worst run (0 to disable)
-
-# === Objective functions ===
-
-## Objective function: f = x^2
-bounds = [[-1] * DIM, [1] * DIM] # domain
-minimum = 0.0 # known true minimum
-minimumAcc = 1.0e-5 # relative‐error tolerance for target encounters
-def objective(x):
-    return x*x
-
-## Objective function: f = QuantumCircuitIA
-# bounds = [[None] * DIM, [None] * DIM] # domain
-# minimum = -5.770919159 # known true minimum
-# minimumAcc = 1.0e-5 # relative‐error tolerance for target encounters
-# def objective(x):
-#     """
-#     Run the external noisy_mps_vector_sim script with input vector x
-#     and return its single float output. Penalize failures with +inf.
-#     """
-#     x_strs = [str(xi) for xi in x]               # convert each x[i] to string
-#     cmd = ["./pycma_mit_scripts/noisy_mps_vector_sim-Martin.py"] + x_strs
-#     try:
-#         result = subprocess.run(
-#             cmd, check=True,
-#             stdout=subprocess.PIPE,
-#             stderr=subprocess.PIPE,
-#             text=True
-#         )
-#         return float(result.stdout.strip())
-#     except subprocess.CalledProcessError as e:
-#         print("External script failed:", e.stderr)
-#         return np.inf
-#     except ValueError:
-#         print("Could not parse float from output:", result.stdout)
-#         return np.inf
-
+# ==========================
 # ===== END USER INPUT =====
+# ==========================
 
 
 script_start_time = time.time()       # record script start
+
+
+if func_id == 'quadratic':
+    # f(x)=x^2 on [-1,1]^DIM
+    bounds      = [[-1]*DIM, [1]*DIM]
+    x0          = [0.0]*DIM
+    minimum     = 0.0
+    minimumAcc  = 1e-5
+    def objective(x):
+        return float(np.dot(x, x))
+
+elif func_id == 'QuantumCircuitIA':
+    # external noisy_mps_vector_sim script with input vector x and return its single float output. Penalize failures with +inf.
+    bounds      = [[None]*DIM, [None]*DIM]
+    x0          = [0.0]*DIM
+    minimum     = -5.770919159
+    minimumAcc  = 1e-5
+    def objective(x):
+        x_strs = [str(xi) for xi in x]               # convert each x[i] to string
+        cmd = ["./pycma_mit_scripts/noisy_mps_vector_sim-Martin.py"] + x_strs
+        try:
+            result = subprocess.run(
+                cmd, check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+            )
+            return float(result.stdout.strip())
+        except subprocess.CalledProcessError as e:
+            print("External script failed:", e.stderr)
+            return np.inf
+        except ValueError:
+            print("Could not parse float from output:", result.stdout)
+            return np.inf
+
+# add more func_id here
+
+else:
+    raise ValueError(f"Unknown func_id: {func_id}")
+
+
+# centralized CMA-ES options:
+cma_opts = {
+    # === Population & recombination ===
+    'popsize': popsize,                     # λ: offspring/population size
+    'CMA_mu': mu,                           # μ: number of parents
+    'CMA_active': True,                     # include negative weights (active CMA)
+    'CMA_diagonal': True,                   # start with diagonal covariance
+    'CMA_diagonal_decoding': diagDecoding,  # soft→full covariance transition rate
+
+    # === Bound constraints ===
+    'bounds': bounds,                       # box constraints: [lower], [upper]
+
+    # === Elitism ===
+    'CMA_elitist': elitismQ,                # keep best parent each generation
+
+    # === Termination criteria ===
+    'maxiter': maxGeneration,               # max number of generations
+    'tolfun': 1e-12,                        # stop if f change < tolfun
+    'tolfunhist': 1e-12,                    # strict history-based f change
+    'tolx': 1e-12,                          # stop if x change < tolx
+    'tolstagnation': maxGeneration // 10,   # stop after this many stagnations
+    'tolflatfitness': maxGeneration // 10,  # additional flat-fitness stop
+
+    # === Logging & display ===
+    'verbose': 1,                           # internal verbosity (warnings/logs)
+    'verb_disp': 1,                         # print summary every generation
+    'verb_log': 1,                          # write .dat log files
+    'verb_plot': 0                          # live plotting (requires matplotlib)
+}
 
 
 # === Output directory and backup setup ===
@@ -96,97 +137,17 @@ script_dir = os.path.dirname(os.path.realpath(__file__))
 output_dir = os.path.join(script_dir, "data")
 os.makedirs(output_dir, exist_ok=True)         # create data folder if missing
 
+
 # Copy this script into data folder for reproducibility
 script_path = os.path.realpath(__file__)
 backup_name = f"{os.path.splitext(os.path.basename(script_path))[0]}_{timestamp}_backup.py"
 shutil.copy(script_path, os.path.join(output_dir, backup_name))
 
-# === Function to run a single CMA-ES instance ===
-def run_cma_es(seed):
-    """
-    Not used in synchronized loop; returns (f_history, x_history, eval_count).
-    """
-    np.random.seed(seed)
-    x0 = [0.0] * DIM                            # initial mean
-
-    opts = {
-        # === Population & recombination ===
-        'popsize': popsize,                     # λ: offspring/population size
-        'CMA_mu': mu,                           # μ: number of parents
-        'CMA_active': True,                     # include negative weights (active CMA)
-        'CMA_diagonal': True,                   # start with diagonal covariance
-        'CMA_diagonal_decoding': diagDecoding,  # soft→full covariance transition rate
-
-        # === Bound constraints ===
-        'bounds': bounds,                       # box constraints: [lower], [upper]
-
-        # === Elitism ===
-        'CMA_elitist': elitismQ,                # keep best parent each generation
-
-        # === Termination criteria ===
-        'maxiter': maxGeneration,               # max number of generations
-        'tolfun': 1e-12,                        # stop if f change < tolfun
-        'tolfunhist': 1e-12,                    # strict history-based f change
-        'tolx': 1e-12,                          # stop if x change < tolx
-        'tolstagnation': maxGeneration // 10,   # stop after this many stagnations
-        'tolflatfitness': maxGeneration // 10,  # additional flat-fitness stop
-
-        # === Logging & display ===
-        'verbose': 1,                           # internal verbosity (warnings/logs)
-        'verb_disp': 1,                         # print summary every generation
-        'verb_log': 1,                          # write .dat log files
-        'verb_plot': 0                          # live plotting (requires matplotlib)
-    }
-
-    # Initialize CMA-ES
-    es = cma.CMAEvolutionStrategy(x0, sigma0, opts)
-    generation = 0
-    best_f_history = []
-    best_history = []
-    xbest_history = []
-    window_size = max(3, int(0.05 * maxGeneration))
-    run_best_f = np.inf
-
-    # Parallel ask–tell loop
-    with concurrent.futures.ProcessPoolExecutor(max_workers=threads) as pool:
-        while not es.stop():
-            generation += 1
-
-            # Ask for candidate solutions
-            solutions = es.ask()
-            # Evaluate in parallel
-            futures = [pool.submit(objective, x) for x in solutions]
-            results = [f.result() for f in futures]
-
-            # Tell CMA-ES the results
-            es.tell(solutions, results)
-
-            # Record histories
-            best_f_history.append(es.best.f)
-            xbest_history.append(es.best.x.copy())
-
-            # Print only on improvement
-            if es.best.f < run_best_f:
-                run_best_f = es.best.f
-                print(f"\n--- Generation {generation} ---")
-                print(f"New local best f: {run_best_f:.6e}")
-            else:
-                print(".", end="", flush=True)
-
-            # Optional sigma reinflation if stagnating
-            if ReinflateSigma:
-                best_history.append(es.best.f)
-                if len(best_history) > window_size:
-                    best_history.pop(0)
-                    var_recent = np.var(best_history[-window_size:])
-                    if var_recent < 1e-3 and es.sigma < 1e-1:
-                        print(f"Re-inflating sigma from {es.sigma:.2e}")
-                        es.sigma *= 10
-
-    return best_f_history, xbest_history, es.result.evaluations
 
 
+# =====================================
 # === Synchronized multi-run CMA-ES ===
+# =====================================
 
 # 1) Initialize CMA-ES instances
 es_list        = []
@@ -200,23 +161,7 @@ target_encounters = 0
 hit_runs = set()    # to remember which run-IDs have already been counted
 
 for rid in range(runs):
-    x0 = [0.0] * DIM
-    opts = {
-        'popsize': popsize,
-        'CMA_mu': mu,
-        'CMA_active': True,
-        'CMA_diagonal': True,
-        'CMA_diagonal_decoding': diagDecoding,
-        'CMA_elitist': elitismQ,
-        'bounds': bounds,
-        'maxiter': maxGeneration,
-        'tolfun': 1e-12,
-        'tolfunhist': 1e-12,
-        'tolx': 1e-12,
-        'tolstagnation': maxGeneration // 10,
-        'tolflatfitness': maxGeneration // 10,
-        'verbose': 1, 'verb_disp': 1, 'verb_log': 1, 'verb_plot': 0
-    }
+    opts = dict(cma_opts)
     es_list.append(cma.CMAEvolutionStrategy(x0, sigma0, opts))
 
 # 2) Create thread pool for generation-synchronized evaluations
@@ -273,7 +218,10 @@ for generation in range(1, maxGeneration + 1):
 # 4) Shutdown the pool
 pool.shutdown()
 
-# === Pad & aggregate results ===
+
+# ==========================================
+# === Pad, aggregate, and export results ===
+# ==========================================
 
 # Pad f-histories to common length
 max_len = max(len(hist) for hist in best_f_history)
