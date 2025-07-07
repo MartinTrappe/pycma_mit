@@ -4,7 +4,7 @@ Multi-run CMA-ES optimization driver (using the Python `cma` package from N. Han
 
 ## Overview
 
-`pycma_mit` launches multiple parallel CMA-ES runs (via `concurrent.futures`), tracks the best fitness value of each run, and saves timestamped logs and plots in the automatically created `data/` folder.
+`pycma_mit` launches multiple parallel CMA-ES runs, tracks the best fitness value of each run, and saves timestamped logs and plots in the automatically created `data/` folder. Customizable hyperparemeters to improve performance for specific use cases.
 
 **Key outputs:**
 
@@ -38,7 +38,7 @@ July 4, 2025
 
 **Clone** the repository:
    ```bash
-   git clone https://github.com/<your-username>/pycma_mit.git
+   git clone https://github.com/MartinTrappe/pycma_mit.git
    cd pycma_mit
    ```
 

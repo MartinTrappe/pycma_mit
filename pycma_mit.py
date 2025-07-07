@@ -42,13 +42,13 @@ import shutil
 # choose which objective function (definitions below) to run:
 #   'quadratic'  →  f(x)=x²
 #   'QuantumCircuitIA'    →  external noisy_mps_vector_sim-Martin
-func_id      = 'quadratic'
+func_id      = 'QuantumCircuitIA'
 threads = os.cpu_count()                       # number of threads for parallel evaluations
 runs = max(1, threads)                         # number of independent CMA-ES runs
 DIM = 32                                       # problem dimension
 sigma0 = 1.0                                   # initial global step size (sigma), default 0.3, increase to 1.0 for more exploration
 popsize = 7                                    # λ: offspring population size per generation
-mu = popsize // 2                              # μ: number of parents for recombination
+mu = popsize - 1 # popsize // 2                              # μ: number of parents for recombination
 maxGeneration = 1000                           # maximum number of generations
 diagDecoding = 1.0                             # diagonal→full covariance transition speed (0=slow,1=instant)
 elitismQ = True                               # if True, always keep best parent each generation
@@ -72,7 +72,8 @@ if func_id == 'quadratic':
 
 elif func_id == 'QuantumCircuitIA':
     # external noisy_mps_vector_sim script with input vector x and return its single float output. Penalize failures with +inf.
-    bounds      = [[None]*DIM, [None]*DIM]
+    #bounds      = [[None]*DIM, [None]*DIM]
+    bounds      = [[0.0]*DIM, [2*np.pi]*DIM]
     x0          = [0.0]*DIM
     minimum     = -5.770919159
     minimumAcc  = 1e-5
