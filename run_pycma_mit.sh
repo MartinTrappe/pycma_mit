@@ -42,7 +42,7 @@ fi
 # === Activate venv and install packages ===
 source "$VENV_DIR/bin/activate"
 pip install --upgrade pip
-pip install cma numpy matplotlib pandas
+pip install numpy matplotlib pandas cma
 
 # === Run the Python script ===
 python "$SCRIPT_DIR/$SCRIPT_NAME"
