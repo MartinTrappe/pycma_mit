@@ -22,7 +22,7 @@ See ===== BEGIN USER INPUT ===== below to adapt script for your objective
 """
 
 
-import os
+import sys, os
 import math
 import numpy as np
 import subprocess
@@ -61,9 +61,9 @@ func_id      = 'QuantumCircuitIA'
 # Custom:
 #   Any user-supplied callable implementing the same signature
 #   as the built-in methods for scipy.optimize.minimize (e.g., fun(x, *args), jac(x, *args), etc.)
-OPTIMIZER = 'cma'
-threads = os.cpu_count()                       # number of threads for parallel evaluations
-runs = max(1, threads)                         # number of independent CMA-ES runs
+OPTIMIZER = 'COBYLA'
+threads = 10#os.cpu_count()                       # number of threads for parallel evaluations
+runs = 20#max(1, threads)                         # number of independent CMA-ES runs
 DIM = 20                                       # problem dimension
 sigma0 = 0.3                                   # initial global step size (sigma), default 0.3, increase to 1.0 for more exploration
 popsize = 7                                    # λ: offspring population size per generation
@@ -121,9 +121,40 @@ else:
     raise ValueError(f"Unknown func_id: {func_id}")
 
 
-
-
 script_start_time = time.time()       # record script start
+
+
+# === Output directory and backup setup ===
+timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+script_dir = os.path.dirname(os.path.realpath(__file__))
+output_dir = os.path.join(script_dir, "data")
+os.makedirs(output_dir, exist_ok=True)         # create data folder if missing
+
+
+# Copy this script into data folder for reproducibility
+script_path = os.path.realpath(__file__)
+backup_name = f"{os.path.splitext(os.path.basename(script_path))[0]}_{timestamp}_backup.py"
+shutil.copy(script_path, os.path.join(output_dir, backup_name))
+
+
+# send all print()s and tracebacks to both console and log_file
+script_base = os.path.splitext(os.path.basename(__file__))[0]
+log_path    = os.path.join(output_dir, f"{script_base}_{timestamp}.log")
+# open the logfile (line-buffered)
+log_file = open(log_path, 'w', buffering=1)
+# define a simple Tee
+class TeeStream:
+    def __init__(self, *streams):
+        self.streams = streams
+    def write(self, data):
+        for s in self.streams:
+            s.write(data)
+    def flush(self):
+        for s in self.streams:
+            s.flush()
+# wrap both stdout and stderr
+sys.stdout = TeeStream(sys.__stdout__, log_file)
+sys.stderr = TeeStream(sys.__stderr__, log_file)
 
 
 # Lower this process’s priority on Linux
@@ -188,21 +219,6 @@ def run_cma():
         'verb_log': 1,                          # write .dat log files
         'verb_plot': 0                          # live plotting (requires matplotlib)
     }
-
-
-    # === Output directory and backup setup ===
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    script_dir = os.path.dirname(os.path.realpath(__file__))
-    output_dir = os.path.join(script_dir, "data")
-    os.makedirs(output_dir, exist_ok=True)         # create data folder if missing
-
-
-    # Copy this script into data folder for reproducibility
-    script_path = os.path.realpath(__file__)
-    backup_name = f"{os.path.splitext(os.path.basename(script_path))[0]}_{timestamp}_backup.py"
-    shutil.copy(script_path, os.path.join(output_dir, backup_name))
-
-
 
     # =====================================
     # === Synchronized multi-run CMA-ES ===
@@ -321,11 +337,6 @@ def run_cma():
     print(f"Global best f(x): {final_best_f:.6e}")
     print("Global best x:", final_best_x)
 
-    # === Total runtime ===
-    script_end_time = time.time()
-    total_secs = script_end_time - script_start_time
-    print(f"\nTotal wall-clock time: {total_secs:.2f} seconds")
-
     # === Plotting ===
     plt.figure(figsize=(10, 6))
 
@@ -442,4 +453,9 @@ if __name__ == '__main__':
         print(f"  Best f(x): {best['final_f']:.6e}")
         print(f"#Iterations: {best['total_nfev']}")
         print(f"     Best x: {best['best_x']}")
+
+        # === Total runtime ===
+        script_end_time = time.time()
+        total_secs = script_end_time - script_start_time
+        print(f"\nTotal wall-clock time: {total_secs:.2f} seconds")
 
