@@ -58,13 +58,14 @@ July 4, 2025
 ## Usage
 
 **Edit** the `# === USER INPUT ===` block in `pycma_mit.py` to set your parameters:
-   - Objective function
-   - Search space dimension
-   - Number of runs
-   - Initial step-size (`sigma0`)
-   - Population size (`popsize`)
-   - Max generations (`maxGeneration`)
-   - Elitism, reinflation periods, etc.
+   - Optimizer (`OPTIMIZER`)
+   - Objective function (`func_ID`)
+   - Search space dimension (`DIM`)
+   - Number of runs (`runs`)
+   - Number of threads (`threads`)
+   - Max generations / iterations (`maxGeneration`)
+   - Optimizer-specific hyperparameters
+   - etc.
 
 **Run** the setup and script:
    ```bash

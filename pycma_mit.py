@@ -71,26 +71,10 @@ mu = popsize // 2                              # μ: number of parents for recom
 maxGeneration = 200                            # maximum number of generations
 diagDecoding = 1.0                             # diagonal→full covariance transition speed (0=slow,1=instant)
 elitismQ = True                                # if True, always keep best parent each generation
-killQ = 0    # generations between killing worst run (default: max(1, maxGeneration // runs); 0 to disable; max(1, maxGeneration // (2*runs)) for fast decay to one remaining run)
+killQ = 0                                      # cma-generations between killing worst run (default: max(1, maxGeneration // runs); 0 to disable; max(1, maxGeneration // (2*runs)) for fast decay to one remaining run)
 # ==========================
 # ===== END USER INPUT =====
 # ==========================
-
-
-script_start_time = time.time()       # record script start
-
-
-# Lower this process’s priority on Linux
-try:
-    subprocess.run(['renice', '+19', '-p', str(os.getpid())],
-                   check=True, stdout=subprocess.DEVNULL)
-except Exception:
-    pass  # if renice fails, we still proceed
-
-
-# Shared global best and lock
-global_best = float('inf')
-best_lock   = threading.Lock()
 
 
 if func_id == 'quadratic':
@@ -129,10 +113,30 @@ elif func_id == 'QuantumCircuitIA':
             print("Could not parse float from output:", result.stdout)
             return np.inf
 
-# add more func_id here
+# USER: add more func_id HERE
+# elif func_id == '????':
+    # return ?
 
 else:
     raise ValueError(f"Unknown func_id: {func_id}")
+
+
+
+
+script_start_time = time.time()       # record script start
+
+
+# Lower this process’s priority on Linux
+try:
+    subprocess.run(['renice', '+19', '-p', str(os.getpid())],
+                   check=True, stdout=subprocess.DEVNULL)
+except Exception:
+    pass  # if renice fails, we still proceed
+
+
+# Shared global best and lock
+global_best = float('inf')
+best_lock   = threading.Lock()
 
 
 # Derived input parameters
