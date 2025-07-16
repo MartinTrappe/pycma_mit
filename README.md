@@ -28,6 +28,7 @@ July 4, 2025
 - **Elitism & Co:** built-in mechanisms to avoid premature (or accelerate) convergence
 - **Logging & plotting:** auto-saved `.dat` files and Matplotlib figures
 - **Easy integration:** template hooks for external programs
+- **fair (same-budget) comparison**: option to run all scipy optimizers (COBYLA, Nelder-Mead, CG, etc.) instead of CMA-ES
 
 ## Prerequisites
 

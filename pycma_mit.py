@@ -42,12 +42,12 @@ from scipy.optimize import minimize
 # ============================
 # ===== BEGIN USER INPUT =====
 # ============================
-# choose which objective function (add definitions below) to run:
+# CHOOSE OBJECTIVE FUNCTION (add definitions below) to run:
 #   'quadratic'  →  f(x)=x²
 #   'QuantumCircuitIA'    →  external noisy_mps_vector_sim-Martin
 func_id      = 'QuantumCircuitIA'
-# choose optimizer:
-# Covariance Matrix Adaptation Evolution Strategy (main purpose of this script):
+# CHOOSE OPTIMIZER:
+# Covariance Matrix Adaptation Evolution Strategy (CMA-ES, main purpose of this driver):
 # 'cma'
 # Derivative-free constrained methods:
 #   'COBYLA', 'COBYQA'
