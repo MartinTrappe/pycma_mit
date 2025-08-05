@@ -4,11 +4,14 @@ pycma_mit.py
 
 Multi-run CMA-ES optimization driver using the Python `cma` package.
 Runs up to N parallel CMA‐ES instances, tracks best‐of‐generation,
-and saves results/plots in a timestamped `data/` folder.
+and saves results/plots in a timestamped `data/` folder. Fair comparison
+with all scipy optimizers. COBYLA, for example, is sequential, and if
+we cannot afford a lot of generations, then we compensate with many
+parallel runs.
 
 Author: Martin-Isbjörn Trappe
 Email: martin.trappe@quantumlah.org
-Date: 2025-07-04
+Date: 2025-07-17
 License: License
 
 Usage:
@@ -37,38 +40,28 @@ import time
 from datetime import datetime
 import shutil
 from scipy.optimize import minimize
-
+import torch
+from torch.optim import Adam
+from torch.optim.lr_scheduler import StepLR
 
 # ============================
 # ===== BEGIN USER INPUT =====
 # ============================
-# CHOOSE OBJECTIVE FUNCTION (add definitions below) to run:
+# CHOOSE OBJECTIVE FUNCTION (add definitions below):
 #   'quadratic'  →  f(x)=x²
-#   'QuantumCircuitIA'    →  external noisy_mps_vector_sim-Martin
-func_id      = 'QuantumCircuitIA'
-# CHOOSE OPTIMIZER:
-# Covariance Matrix Adaptation Evolution Strategy (CMA-ES, main purpose of this driver):
-# 'cma'
-# Derivative-free constrained methods:
-#   'COBYLA', 'COBYQA'
-# Bound-constrained only:
-#   'L-BFGS-B', 'TNC'
-# Gradient-based constrained methods:
-#   'SLSQP', 'trust-constr'
-# Unconstrained / bound-free or bound-constrained algorithms:
-#   'Nelder-Mead', 'Powell', 'CG', 'BFGS', 'Newton-CG',
-#   'dogleg', 'trust-ncg', 'trust-exact', 'trust-krylov'
-# Custom:
-#   Any user-supplied callable implementing the same signature
-#   as the built-in methods for scipy.optimize.minimize (e.g., fun(x, *args), jac(x, *args), etc.)
-OPTIMIZER = 'COBYLA'
-threads = 10#os.cpu_count()                       # number of threads for parallel evaluations
-runs = 20#max(1, threads)                         # number of independent CMA-ES runs
+#   'QuantumCircuitIA_1' & 'QuantumCircuitIA_2'    →  external scripts located in pycma_mit_scripts/
+func_id      = 'quadratic'
+# CHOOSE OPTIMIZER (see selection below):
+OPTIMIZER = 'Adam'
+gradQ = True                                  # True if scipy should use gradient (user-supplied in objective function); False for finite-difference
+autogradQ = False                              # True to use automatic differentiation (ToDo)
+threads = 10#os.cpu_count() - 2                   # number of threads for parallel evaluations
+runs = 20                                      # number of independent CMA-ES runs
 DIM = 20                                       # problem dimension
 sigma0 = 0.3                                   # initial global step size (sigma), default 0.3, increase to 1.0 for more exploration
-popsize = 7                                    # λ: offspring population size per generation
+popsize = 6                                    # λ: offspring population size per generation
 mu = popsize // 2                              # μ: number of parents for recombination
-maxGeneration = 200                            # maximum number of generations
+maxGeneration = 400                            # maximum number of generations
 diagDecoding = 1.0                             # diagonal→full covariance transition speed (0=slow,1=instant)
 elitismQ = True                                # if True, always keep best parent each generation
 killQ = 0                                      # cma-generations between killing worst run (default: max(1, maxGeneration // runs); 0 to disable; max(1, maxGeneration // (2*runs)) for fast decay to one remaining run)
@@ -77,27 +70,72 @@ killQ = 0                                      # cma-generations between killing
 # ==========================
 
 
+# Derived input parameters
+
+# OPTIMIZER selection
+# 1) Gradient-based methods
+#  1.a  Bound-constrained ONLY
+gradient_bound = [
+    'L-BFGS-B',
+    'TNC',
+]
+#  1.b  Unconstrained ONLY
+gradient_unconstrained = [
+    'CG',
+    'BFGS',
+    'Newton-CG',
+    'dogleg',
+    'trust-ncg',
+    'trust-exact',
+    'trust-krylov',
+]
+#  1.c  Unconstrained OR bound-constrained
+gradient_either = [
+    'SLSQP',
+    'trust-constr',
+    'Adam',
+]
+# 2) Derivative-free methods
+#  2.a  Bound-constrained ONLY
+derivative_free_bound = [
+    'COBYLA',
+    'COBYQA',
+]
+#  2.b  Unconstrained OR bound-constrained
+derivative_free_either = [
+    'cma', # Covariance Matrix Adaptation Evolution Strategy (CMA-ES, main purpose of this driver)
+    'Nelder-Mead',
+    'Powell',
+]
+if gradQ == True and ((OPTIMIZER in derivative_free_bound) or (OPTIMIZER in derivative_free_either)):
+    gradQ = False
+    print("!!! Warning: gradQ changed to False !!!")
+
 if func_id == 'quadratic':
     # f(x)=x^2 on [-1,1]^DIM
-    bounds      = [[-1]*DIM, [1]*DIM]
+    BOUNDS      = [[-1]*DIM, [1]*DIM]
     minimum     = 0.0
     minimumAcc  = 1e-5
     def objective(x):
-        return float(np.dot(x, x))
+        f = float(np.dot(x, x))
+        if gradQ == True:
+            g = 2*x
+            return f, g
+        else:
+            return f
 
-elif func_id == 'QuantumCircuitIA':
+elif func_id == 'QuantumCircuitIA_1' or func_id == 'QuantumCircuitIA_2':
     # external noisy_mps_vector_sim script with input vector x and return its single float output. Penalize failures with +inf.
-    DMPEPS = True # use Density-Matrix Circuit
-    #bounds      = [[None]*DIM, [None]*DIM]
-    bounds      = [[0.0]*DIM, [2*np.pi]*DIM] # seems to work better
+    #BOUNDS      = [[None]*DIM, [None]*DIM]
+    BOUNDS      = [[0.0]*DIM, [2*np.pi]*DIM] # seems to work better
     minimum     = -5.770919159
     minimumAcc  = 1e-5
     def objective(x):
         x_strs = [str(xi) for xi in x]               # convert each x[i] to string
-        if DMPEPS:
-            cmd = ["./pycma_mit_scripts/noisy-DM-PEPS-sim.py", "eval"] + x_strs
-        else:
+        if func_id == 'QuantumCircuitIA_1':
             cmd = ["./pycma_mit_scripts/noisy_mps_vector_sim-Martin.py"] + x_strs
+        elif func_id == 'QuantumCircuitIA_2':
+            cmd = ["./pycma_mit_scripts/noisy-DM-PEPS-sim.py", "eval"] + x_strs
         try:
             result = subprocess.run(
                 cmd, check=True,
@@ -139,7 +177,7 @@ shutil.copy(script_path, os.path.join(output_dir, backup_name))
 
 # send all print()s and tracebacks to both console and log_file
 script_base = os.path.splitext(os.path.basename(__file__))[0]
-log_path    = os.path.join(output_dir, f"{script_base}_{timestamp}.log")
+log_path    = os.path.join(output_dir, f"{script_base}_{timestamp}_maxGen={maxGeneration}_{OPTIMIZER}.log")
 # open the logfile (line-buffered)
 log_file = open(log_path, 'w', buffering=1)
 # define a simple Tee
@@ -174,7 +212,14 @@ best_lock   = threading.Lock()
 budget = runs * maxGeneration * popsize
 print(f"    #threads = {threads}")
 print(f"Total Budget = {budget}")
-lower, upper = bounds
+if OPTIMIZER in gradient_unconstrained:
+    BOUNDS_scipy = None
+    lower = [None]*DIM
+    upper = [None]*DIM
+    print("!!! Warning: BOUNDS changed to unconstrained !!!")
+else:
+    lower, upper = BOUNDS
+    BOUNDS_scipy = list(zip(lower, upper))
 
 
 def random_x0(lower, upper, sigma0):
@@ -200,7 +245,7 @@ def run_cma():
         'CMA_diagonal_decoding': diagDecoding,  # soft→full covariance transition rate
 
         # === Bound constraints ===
-        'bounds': bounds,                       # box constraints: [lower], [upper]
+        'bounds': BOUNDS,                       # box constraints: [lower], [upper]
 
         # === Elitism ===
         'CMA_elitist': elitismQ,                # keep best parent each generation
@@ -366,7 +411,7 @@ def run_cma():
     plt.xlabel("Generation")
     plt.ylabel("Best f(x)")
     plt.title(
-        f"pycma_mit.py\n {runs} runs --- {maxGeneration} generations --- {math.floor(total_secs)} sec:\n"
+        f"pycma_mit.py\n {runs} runs --- {maxGeneration} generations:\n"
         f"best f = {final_best_f:.6e}  @  #FuncEvals = {total_evaluations}   #TargetEncounters = {target_encounters} / {runs}"
     )
     plt.grid(True)
@@ -376,7 +421,7 @@ def run_cma():
     # Save the figure
     plot_path = os.path.join(output_dir, f"{os.path.splitext(os.path.basename(script_path))[0]}_{timestamp}_global_plot.pdf")
     plt.savefig(plot_path)
-    plt.show()
+    #plt.show()
 
 
 def run_scipy_once(method, seed):
@@ -399,9 +444,14 @@ def run_scipy_once(method, seed):
                 )
         return f
 
-    # COBYLA treats maxiter as max-func-evals; give it the full per-run budget
-    if method.upper() == 'COBYLA':
-        opts = {'maxiter': max(DIM + 2, maxGeneration - (DIM + 2))}
+    # COBYLA: although DIM+2 evals per run are added as preparation (which could, in principle, be done in parallel, so let's not count them), but it needs at least DIM+2 func evals, for which it asigns, apparently, the 'maxiter' option
+    if method == 'COBYLA':
+        opts = {'maxiter': maxGeneration + DIM + 2}
+    elif method == 'TNC':
+        opts = {
+            'maxfun': maxGeneration*((DIM+1)*(10+1)+4),
+            'disp': True
+            }
     else:
         opts = {'maxiter': maxGeneration}
 
@@ -409,7 +459,8 @@ def run_scipy_once(method, seed):
         fun,
         x0,
         method=method,
-        bounds=list(zip(lower, upper)),
+        jac=gradQ,              # True ⇒ fun_and_grad must return (f, g)
+        bounds=BOUNDS_scipy,
         options=opts
     )
 
@@ -421,22 +472,106 @@ def run_scipy_once(method, seed):
         'message':    res.message
     }
 
+
+def run_adam_once(seed: int) -> dict:
+    global global_best
+
+    np.random.seed(seed)
+    cum_evals = 0
+    best_local = float('inf')
+
+    # initial params
+    params_np = np.array(random_x0(lower, upper, sigma0))
+    params    = torch.tensor(params_np, dtype=torch.float64, requires_grad=False)
+
+    # Adam optimizer
+    optimizer = Adam([params],
+                     lr=0.1,
+                     betas=(0.9, 0.999),
+                     eps=1e-8,
+                     amsgrad=True)
+
+    # scheduler: step down by factor=0.1 every 200 iters
+    scheduler = StepLR(optimizer, step_size=200, gamma=0.1)
+
+    for gen in range(1, maxGeneration+1):
+        optimizer.zero_grad()
+
+        # compute f and g in NumPy
+        if gradQ:
+            f_val, g = objective(params_np)
+            cum_evals += 1
+        else:
+            f_val = objective(params_np)
+            cum_evals += 1
+            g = np.zeros_like(params_np)
+            eps = 1e-6
+            for i in range(len(params_np)):
+                x_eps = params_np.copy()
+                x_eps[i] += eps
+                cum_evals += 1
+                g[i] = (objective(x_eps) - f_val) / eps
+
+        # inject gradient and step
+        params.grad = torch.tensor(g, dtype=torch.float64)
+        optimizer.step()
+
+        # advance the scheduler
+        scheduler.step()
+
+        # pull params back to NumPy
+        params_np = params.detach().numpy()
+
+        # global‐best logging
+        with best_lock:
+            if f_val < global_best:
+                global_best = f_val
+                print(f"[Seed {seed}]: evals={cum_evals} best={f_val:.6e}", flush=True)
+
+        if f_val < best_local:
+            best_local = f_val
+
+    total_nfev = cum_evals
+    return {
+        'seed':       seed,
+        'final_f':    best_local,
+        'total_nfev': total_nfev,
+        'best_x':     params_np.copy(),
+        'message':    'completed'
+    }
+
+
+
+
 if __name__ == '__main__':
-    if OPTIMIZER.lower() == 'cma':
+    if OPTIMIZER == 'cma':
         run_cma()
     else:
-        if OPTIMIZER == 'COBYLA':
-            n_runs = budget // max(DIM + 2, maxGeneration - (DIM + 2))
+        if OPTIMIZER == 'COBYLA' or OPTIMIZER == 'Powell':
+            evals_per_gen = 1
         elif OPTIMIZER == 'Nelder-Mead':
-            n_runs = budget // (2*maxGeneration)
+            evals_per_gen = 2
+        elif OPTIMIZER == 'TNC':
+            evals_per_gen = (DIM+1)*(10+1)+4
+        elif OPTIMIZER == 'CG':
+            evals_per_gen = (DIM+1)*2
+        elif OPTIMIZER == 'Adam':
+            if gradQ:
+                evals_per_gen = 1
+            else:
+                evals_per_gen = DIM+1
         else:
-            n_runs = runs
-        print(f"Launching {n_runs} runs of {OPTIMIZER} with a budget of ~{budget//n_runs} func evals each across all iterations\n")
+            evals_per_gen = DIM+1
+        n_runs = max(1,budget // (maxGeneration*evals_per_gen))
+        print(f"Launching {n_runs} runs of {OPTIMIZER} with a budget of ~{budget//n_runs} func evals each across all {maxGeneration} iterations\n")
 
         seeds  = list(np.random.randint(0, 1_000_000, size=n_runs))
         results = []
-        with ThreadPoolExecutor(max_workers=n_runs) as ex:
-            futures = {ex.submit(run_scipy_once, OPTIMIZER, s): s for s in seeds}
+        with ThreadPoolExecutor(max_workers=threads) as ex:
+            if OPTIMIZER == 'Adam':
+                futures = {ex.submit(run_adam_once, s): s for s in seeds}
+            else:
+                futures = {ex.submit(run_scipy_once, OPTIMIZER, s): s for s in seeds}
             for fut in as_completed(futures):
                 r = fut.result()
                 results.append(r)
@@ -454,8 +589,8 @@ if __name__ == '__main__':
         print(f"#Iterations: {best['total_nfev']}")
         print(f"     Best x: {best['best_x']}")
 
-        # === Total runtime ===
-        script_end_time = time.time()
-        total_secs = script_end_time - script_start_time
-        print(f"\nTotal wall-clock time: {total_secs:.2f} seconds")
+    # === Total runtime ===
+    script_end_time = time.time()
+    total_secs = script_end_time - script_start_time
+    print(f"\nTotal wall-clock time: {total_secs:.2f} seconds")
 

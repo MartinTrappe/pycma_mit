@@ -23,6 +23,9 @@
 #   4. Runs pycma_mit.py
 #   5. Exits/deactivates the venv
 
+# limit BLAS/OpenMP threads to one each
+export OMP_NUM_THREADS=1
+export MKL_NUM_THREADS=1
 
 # === Configuration ===
 SCRIPT_NAME="pycma_mit.py"
@@ -41,8 +44,12 @@ fi
 
 # === Activate venv and install packages ===
 source "$VENV_DIR/bin/activate"
-pip install --upgrade pip
-pip install numpy matplotlib pandas cma
+# upgrade pip in the venv
+python -m pip install --upgrade pip
+# install core dependencies
+python -m pip install numpy matplotlib pandas cma
+# install PyTorch to get torch.optim.Adam
+python -m pip install torch
 
 # === Run the Python script ===
 python "$SCRIPT_DIR/$SCRIPT_NAME"
