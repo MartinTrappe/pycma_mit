@@ -26,6 +26,7 @@
 # limit BLAS/OpenMP threads to one each
 export OMP_NUM_THREADS=1
 export MKL_NUM_THREADS=1
+export OPENBLAS_NUM_THREADS=1
 
 # === Configuration ===
 SCRIPT_NAME="pycma_mit.py"

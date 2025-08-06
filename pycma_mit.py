@@ -41,6 +41,8 @@ from datetime import datetime
 import shutil
 from scipy.optimize import minimize
 import torch
+torch.set_num_threads(1)
+torch.set_num_interop_threads(1)
 from torch.optim import Adam
 from torch.optim.lr_scheduler import StepLR
 
@@ -50,18 +52,18 @@ from torch.optim.lr_scheduler import StepLR
 # CHOOSE OBJECTIVE FUNCTION (add definitions below):
 #   'quadratic'  →  f(x)=x²
 #   'QuantumCircuitIA_1' & 'QuantumCircuitIA_2'    →  external scripts located in pycma_mit_scripts/
-func_id      = 'quadratic'
+func_id      = 'QuantumCircuitIA_2'
 # CHOOSE OPTIMIZER (see selection below):
 OPTIMIZER = 'Adam'
-gradQ = True                                  # True if scipy should use gradient (user-supplied in objective function); False for finite-difference
+gradQ = False                                  # True if scipy should use gradient (user-supplied in objective function); False for finite-difference
 autogradQ = False                              # True to use automatic differentiation (ToDo)
-threads = 10#os.cpu_count() - 2                   # number of threads for parallel evaluations
+threads = os.cpu_count() - 2                   # number of threads for parallel evaluations
 runs = 20                                      # number of independent CMA-ES runs
 DIM = 20                                       # problem dimension
 sigma0 = 0.3                                   # initial global step size (sigma), default 0.3, increase to 1.0 for more exploration
 popsize = 6                                    # λ: offspring population size per generation
 mu = popsize // 2                              # μ: number of parents for recombination
-maxGeneration = 400                            # maximum number of generations
+maxGeneration = 3                            # maximum number of generations
 diagDecoding = 1.0                             # diagonal→full covariance transition speed (0=slow,1=instant)
 elitismQ = True                                # if True, always keep best parent each generation
 killQ = 0                                      # cma-generations between killing worst run (default: max(1, maxGeneration // runs); 0 to disable; max(1, maxGeneration // (2*runs)) for fast decay to one remaining run)
@@ -491,8 +493,8 @@ def run_adam_once(seed: int) -> dict:
                      eps=1e-8,
                      amsgrad=True)
 
-    # scheduler: step down by factor=0.1 every 200 iters
-    scheduler = StepLR(optimizer, step_size=200, gamma=0.1)
+    # scheduler: step down by factor=0.1 every step_size iters
+    scheduler = StepLR(optimizer, step_size=max(1,maxGeneration // 10), gamma=0.1)
 
     for gen in range(1, maxGeneration+1):
         optimizer.zero_grad()
@@ -567,7 +569,9 @@ if __name__ == '__main__':
 
         seeds  = list(np.random.randint(0, 1_000_000, size=n_runs))
         results = []
-        with ThreadPoolExecutor(max_workers=threads) as ex:
+        # pick executor class based on optimizer
+        executor_cls = ProcessPoolExecutor if OPTIMIZER == 'Adam' else ThreadPoolExecutor
+        with executor_cls(max_workers=threads) as ex:
             if OPTIMIZER == 'Adam':
                 futures = {ex.submit(run_adam_once, s): s for s in seeds}
             else:
